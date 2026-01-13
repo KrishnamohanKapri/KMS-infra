@@ -1,0 +1,39 @@
+# Terraform files
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfvars
+!terraform/terraform.tfvars.example
+terraform/crash.log
+terraform/override.tf
+terraform/override.tf.json
+terraform/*_override.tf
+terraform/*_override.tf.json
+
+# Backup files (may contain secrets)
+terraform/*.backup
+terraform/*.backup.*
+terraform/terraform.tfvars.backup.*
+
+# Secrets and keys
+*.pem
+*.key
+!*.pub
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Additional secret patterns
+secrets/
+*.secret
+*.token
+credentials/
+*.credentials
+
+# Ansible sensitive files (if any)
+ansible/vault_pass.txt
+ansible/.vault_pass
+ansible/group_vars/*/vault.yml

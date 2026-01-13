@@ -1,0 +1,30 @@
+---
+# Cluster configuration
+cluster_name: "kms-cluster"
+cluster_region: "fra1"
+
+# Namespaces to create
+namespaces:
+  - kms
+  - monitoring
+  - argocd
+
+# GitHub Container Registry configuration
+ghcr_username: "krishnamohankapri"
+ghcr_secret_name: "ghcr-secret"
+ghcr_registry: "ghcr.io"
+
+# Argo CD configuration
+argocd_version: "stable"
+argocd_namespace: "argocd"
+argocd_port: 8080
+
+# GitOps repository - can be GitHub URL or local path
+# GitHub URL example: https://github.com/KrishnamohanKapri/KMS-gitops
+# Local path example: ../KMS-gitops
+gitops_repo_path: "https://github.com/KrishnamohanKapri/KMS-gitops"
+gitops_repo_branch: "main"  # Branch name for GitHub URL
+
+# Gateway API
+gateway_api_version: "v1.0.0"
+envoy_gateway_version: "latest"

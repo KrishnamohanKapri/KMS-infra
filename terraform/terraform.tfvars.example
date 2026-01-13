@@ -1,0 +1,19 @@
+# DigitalOcean Configuration
+do_token          = "dop_v1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # Your DO API token
+region            = "nyc1"  # DigitalOcean region (nyc1, sfo3, fra1, sgp1, etc.)
+project_name      = "ssh-public-key"
+
+# Kubernetes Configuration
+kubernetes_version = "1.34.1-do.2"  # Check available versions: doctl kubernetes options versions
+node_size          = "s-4vcpu-8gb"   # $24/month - options: s-1vcpu-1gb ($6), s-2vcpu-4gb ($24), s-4vcpu-8gb ($48)
+node_count         = 1               # Number of nodes in the pool
+
+# Optional: Disable bastion if not needed
+enable_bastion     = true            # Set to false to skip bastion creation
+
+# Ansible Provisioning
+github_username     = "username"  # Your GitHub username
+github_pat          = ""                   # GitHub PAT for GHCR (get from https://github.com/settings/tokens)
+enable_ansible_provisioning = true         # Set to false to skip Ansible automation
+gitops_repo_path    = "https://github.com/username/KMS-gitops"  # GitHub URL or local path
+gitops_repo_branch  = "main"                # Branch name (for GitHub URLs only)

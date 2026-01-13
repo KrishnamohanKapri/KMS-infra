@@ -1,0 +1,231 @@
+---
+- name: Configure DOKS Cluster Post-Deployment
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    cluster_name: "{{ cluster_name | default('kms-cluster') }}"
+    github_username: "{{ github_username | default('krishnamohankapri') }}"
+    github_pat: "{{ lookup('env', 'GITHUB_PAT') | default('') }}"
+    gitops_repo_path: "{{ gitops_repo_path | default('https://github.com/KrishnamohanKapri/KMS-gitops') }}"
+    gitops_repo_branch: "{{ gitops_repo_branch | default('main') }}"
+
+  tasks:
+    - name: Check if kubectl is installed
+      command: which kubectl
+      register: kubectl_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if kubectl is not installed
+      fail:
+        msg: "kubectl is not installed. Please install it first."
+      when: kubectl_check.rc != 0
+
+    - name: Check if doctl is installed
+      command: which doctl
+      register: doctl_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if doctl is not installed
+      fail:
+        msg: "doctl is not installed. Please install it first."
+      when: doctl_check.rc != 0
+
+    - name: Get kubeconfig for cluster
+      command: doctl kubernetes cluster kubeconfig save {{ cluster_name }}
+      register: kubeconfig_result
+      changed_when: true
+      failed_when: false
+
+    - name: Verify cluster access
+      command: kubectl get nodes
+      register: nodes_result
+      changed_when: false
+
+    - name: Display cluster nodes
+      debug:
+        msg: "{{ nodes_result.stdout_lines }}"
+
+    - name: Create namespaces
+      shell: kubectl create namespace {{ item }} --dry-run=client -o yaml | kubectl apply -f -
+      loop: "{{ namespaces }}"
+      register: ns_results
+      changed_when: true
+      failed_when: false
+
+    - name: Display namespace creation results
+      debug:
+        msg: "Namespace {{ item.item }}: {{ item.stdout if item.stdout else 'already exists or created' }}"
+      loop: "{{ ns_results.results }}"
+      when: item.rc == 0
+
+    - name: Check if GitHub PAT is set
+      debug:
+        msg: "GitHub PAT is {{ 'set' if github_pat else 'not set' }}"
+      when: github_pat == ""
+
+    - name: Create GHCR secret for kms namespace
+      shell: >
+        kubectl create secret docker-registry {{ ghcr_secret_name }}
+        --docker-server={{ ghcr_registry }}
+        --docker-username={{ github_username }}
+        --docker-password={{ github_pat }}
+        --namespace=kms
+        --dry-run=client -o yaml | kubectl apply -f -
+      when: github_pat != ""
+      register: ghcr_kms_secret
+      changed_when: "ghcr_kms_secret.rc == 0"
+      no_log: true
+      failed_when: false
+
+    - name: Create GHCR secret for monitoring namespace
+      shell: >
+        kubectl create secret docker-registry {{ ghcr_secret_name }}
+        --docker-server={{ ghcr_registry }}
+        --docker-username={{ github_username }}
+        --docker-password={{ github_pat }}
+        --namespace=monitoring
+        --dry-run=client -o yaml | kubectl apply -f -
+      when: github_pat != ""
+      register: ghcr_monitoring_secret
+      changed_when: "ghcr_monitoring_secret.rc == 0"
+      no_log: true
+      failed_when: false
+
+    - name: Display GHCR secret creation status
+      debug:
+        msg: "GHCR secrets created successfully"
+      when: github_pat != "" and (ghcr_kms_secret.changed or ghcr_monitoring_secret.changed)
+
+    - name: Install Argo CD
+      command: kubectl apply -n {{ argocd_namespace }} -f https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml
+      register: argocd_install
+      changed_when: "'created' in argocd_install.stdout or 'configured' in argocd_install.stdout"
+      failed_when: false
+
+    - name: Wait for Argo CD namespace to be ready
+      wait_for:
+        timeout: 10
+      delegate_to: localhost
+
+    - name: Wait for Argo CD server deployment to be available
+      command: kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n {{ argocd_namespace }}
+      register: argocd_wait
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: argocd_wait.rc == 0
+      failed_when: false
+
+    - name: Get Argo CD admin password
+      shell: kubectl -n {{ argocd_namespace }} get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d
+      register: argocd_password
+      changed_when: false
+      no_log: true
+      failed_when: false
+
+    - name: Display Argo CD access information
+      debug:
+        msg:
+          - "=========================================="
+          - "Argo CD Installation Complete!"
+          - "=========================================="
+          - "Access URL: https://localhost:{{ argocd_port }}"
+          - "Username: admin"
+          - "Password: {{ argocd_password.stdout if argocd_password.rc == 0 else 'Check with: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath=\"{.data.password}\" | base64 -d' }}"
+          - ""
+          - "To access Argo CD UI:"
+          - "  kubectl port-forward svc/argocd-server -n {{ argocd_namespace }} {{ argocd_port }}:443"
+          - "  Then open: https://localhost:{{ argocd_port }}"
+
+    - name: Install Gateway API CRDs
+      command: kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml
+      register: gateway_api_install
+      changed_when: "'created' in gateway_api_install.stdout or 'configured' in gateway_api_install.stdout"
+      failed_when: false
+
+    - name: Display Gateway API installation status
+      debug:
+        msg: "Gateway API CRDs installed"
+      when: gateway_api_install.changed
+
+    - name: Install Envoy Gateway
+      command: kubectl apply -f https://github.com/envoyproxy/gateway/releases/{{ envoy_gateway_version }}/download/install.yaml
+      register: envoy_gateway_install
+      changed_when: "'created' in envoy_gateway_install.stdout or 'configured' in envoy_gateway_install.stdout"
+      failed_when: false
+
+    - name: Display Envoy Gateway installation status
+      debug:
+        msg: "Envoy Gateway installed"
+      when: envoy_gateway_install.changed
+
+    - name: Check if gitops_repo_path is a URL
+      set_fact:
+        is_gitops_url: "{{ gitops_repo_path is match('^https?://.*') }}"
+      changed_when: false
+
+    - name: Extract GitHub repo info from URL
+      set_fact:
+        gitops_repo_owner: "{{ gitops_repo_path.split('/')[3] }}"
+        gitops_repo_name: "{{ gitops_repo_path.split('/')[4] | regex_replace('\\.git$', '') }}"
+      when: is_gitops_url
+
+    - name: Construct GitHub raw URL
+      set_fact:
+        gitops_apps_url: "https://raw.githubusercontent.com/{{ gitops_repo_owner }}/{{ gitops_repo_name }}/{{ gitops_repo_branch }}/argocd/application.yaml"
+      when: is_gitops_url
+
+    - name: Check if local GitOps repo path exists
+      stat:
+        path: "{{ gitops_repo_path }}/argocd/application.yaml"
+      register: gitops_apps_file
+      when: not is_gitops_url
+
+    - name: Apply Argo CD applications from GitHub URL
+      command: kubectl apply -f {{ gitops_apps_url }}
+      when: is_gitops_url
+      register: argocd_apps_url
+      changed_when: "'created' in argocd_apps_url.stdout or 'configured' in argocd_apps_url.stdout"
+      failed_when: false
+
+    - name: Apply Argo CD applications from local path
+      command: kubectl apply -f {{ gitops_repo_path }}/argocd/application.yaml
+      when: not is_gitops_url and gitops_apps_file.stat.exists
+      register: argocd_apps_local
+      changed_when: "'created' in argocd_apps_local.stdout or 'configured' in argocd_apps_local.stdout"
+      failed_when: false
+
+    - name: Display GitOps applications status (GitHub URL)
+      debug:
+        msg: "Argo CD applications applied from GitHub: {{ gitops_apps_url }}"
+      when: is_gitops_url and argocd_apps_url.changed
+
+    - name: Display GitOps applications status (local path)
+      debug:
+        msg: "Argo CD applications applied from local path: {{ gitops_repo_path }}/argocd/application.yaml"
+      when: not is_gitops_url and gitops_apps_file.stat.exists and argocd_apps_local.changed
+
+    - name: Display warning if local GitOps repo not found
+      debug:
+        msg: "Warning: GitOps applications file not found at {{ gitops_repo_path }}/argocd/application.yaml. Skipping application deployment."
+      when: not is_gitops_url and not gitops_apps_file.stat.exists
+
+    - name: Display completion message
+      debug:
+        msg:
+          - "=========================================="
+          - "DOKS Cluster Configuration Complete!"
+          - "=========================================="
+          - "Cluster: {{ cluster_name }}"
+          - "Namespaces created: {{ namespaces | join(', ') }}"
+          - "Argo CD installed in: {{ argocd_namespace }}"
+          - "Gateway API CRDs installed"
+          - "Envoy Gateway installed"
+          - ""
+          - "Next steps:"
+          - "  1. Port-forward to Argo CD: kubectl port-forward svc/argocd-server -n {{ argocd_namespace }} {{ argocd_port }}:443"
+          - "  2. Access Argo CD UI: https://localhost:{{ argocd_port }}"
+          - "  3. Login with username 'admin' and password from above"
+          - "  4. Verify applications are syncing in Argo CD UI"
