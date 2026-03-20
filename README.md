@@ -1,3 +1,21 @@
+# KMS Infrastructure (DigitalOcean Kubernetes)
+
+`KMS-infra` provisions and configures the Kubernetes cluster used to run KMS on DigitalOcean. It uses:
+- Terraform to create networking and the DOKS (DigitalOcean Kubernetes) cluster
+- Ansible to configure cluster access and install/configure GitOps tooling
+
+It sets up and deploys what KMS needs, including Argo CD (GitOps), Gateway API (ingress routing), and the application stack definitions managed in `KMS-gitops`.
+
+Quick start (high level):
+1. Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars` and edit variables
+2. Run `terraform init` + `terraform apply`
+3. Save kubeconfig via `doctl`, then port-forward the Argo CD UI
+
+For deeper setup/variables, see the full documentation below.
+
+<details>
+<summary>More details (step-by-step)</summary>
+
 # 🏗️ KMS Infrastructure as Code (IaC)
 
 > **Infrastructure automation for the Kitchen Management System (KMS) on DigitalOcean Kubernetes**
@@ -531,3 +549,5 @@ kubectl describe node <node-name>
 ---
 
 **Built with ❤️ for the Kitchen Management System**
+
+</details>
